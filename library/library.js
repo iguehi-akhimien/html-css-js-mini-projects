@@ -34,6 +34,7 @@ const initDB = () => {
 
   request.onerror = (event) => {
     console.error("Database error:", event.target.error);
+    showError(`"Database error:", ${event.target.error}`);
   };
 
   request.onupgradeneeded = (event) => {
@@ -45,7 +46,7 @@ const initDB = () => {
 
   request.onsuccess = (event) => {
     db = event.target.result;
-    console.info("Success!");
+    loadLibrary();
   };
 };
 
@@ -70,7 +71,7 @@ const searchBooks = async () => {
     }
   });
 
-  // showLoading --> true
+  showLoading(true);
 
   try {
     console.log("Library search for:", `${SEARCH_API}?${params}`);
@@ -81,20 +82,20 @@ const searchBooks = async () => {
     }
     const data = await response.json();
     const limitedDocs = data.docs.slice(0, MAX_RESULTS);
-    // display the search results
+    displaySearchResults(limitedDocs);
   } catch (error) {
-    // show error to user
+    showError(`Failed to fetch books: ${error.message}`);
   } finally {
-    // showLoading --> false
+    showLoading(false);
   }
 };
 
 const displaySearchResults = (books) => {
   if (!books || books.length === 0) {
-    // show error
+    showError("No books found!");
     return;
   }
-  // clear error
+  clearError();
   resultsBody.innerHTML = "";
   books.forEach((book, index) => {
     const row = createBookRow(book, index + 1, false);
@@ -121,7 +122,147 @@ const createBookRow = (book, id, isLibraryView = false) => {
     book.description || "No description available";
 
   // Getting cover images
-  
+  const coverImg = row.querySelector(".cover-image");
+  if (book.cover_i) {
+    coverImg.dataset.coverId = book.cover_i;
+    coverImg.addEventListener("click", loadBookCover);
+  }
+
+  // setup the action buttons
+  const markButton = row.querySelector(".mark-button");
+  const deleteButton = row.querySelector(".delete-button");
+  const bookKey = book.key;
+
+  if (isLibraryView) {
+    deleteButton.classList.remove("hidden");
+    deleteButton.addEventListener("click", () => {
+      removeFromLibrary(book.key).then(loadLibrary);
+    });
+
+    const isRead = book.isRead;
+    updateReadStatusButton(markButton, isRead);
+    markButton.addEventListener("click", async () => {
+      book.isRead = !book.isRead;
+      await addToLibrary(book);
+      updateReadStatusButton(markButton, book.isRead);
+    });
+  } else {
+    markButton.textContent = "Add to Library";
+    markButton.classList.remove("read", "unread");
+
+    checkIfInLibrary(bookKey).then((existingBook) => {
+      if (existingBook) {
+        markButton.textContent = "Already in Library";
+        markButton.disabled = true;
+      } else {
+        markButton.addEventListener("click", async () => {
+          await addToLibrary({ ...book, isRead: false });
+          markButton.textContent = "Added to Library";
+          markButton.disabled = true;
+          loadLibrary();
+        });
+      }
+    });
+  }
+  return row;
 };
+
+const loadBookCover = async (event) => {
+  const img = event.target;
+  const coverId = img.dataset.coverId;
+  if (coverId) {
+    img.src = `${COVERS_API}/id/${coverId}-M.jpg`;
+    console.log("Fetching cover: ", `${COVERS_API}/id/${coverId}-M.jpg`);
+  }
+};
+
+const updateReadStatusButton = (button, isRead) => {
+  button.textContent = isRead ? "Mark as Unread" : "Mark as Read";
+  button.classList.remove("read", "unread");
+  button.classList.add(isRead ? "read" : "unread");
+};
+
+const addToLibrary = (book) => {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORE_NAME], "readwrite");
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.put({ ...book, key: book.key });
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const removeFromLibrary = (key) => {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORE_NAME], "readwrite");
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.delete(key);
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const checkIfInLibrary = (key) => {
+  return new Promise((resolve) => {
+    const transaction = db.transaction([STORE_NAME], "readonly");
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get(key);
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => resolve(null);
+  });
+};
+
+const loadLibrary = () => {
+  const transaction = db.transaction([STORE_NAME], "readonly");
+  const store = transaction.objectStore(STORE_NAME);
+  const request = store.getAll();
+
+  request.onsuccess = () => {
+    const books = request.result;
+    libraryBody.innerHTML = "";
+    books.forEach((book, index) => {
+      const row = createBookRow(book, index + 1, true);
+      libraryBody.appendChild(row);
+    });
+  };
+};
+
+const clearError = () => {
+  errorEl.textContent = "";
+  errorEl.classList.add("hidden");
+};
+
+const showLoading = (show) => {
+  loadingEl.classList.toggle("hidden", !show);
+  if (show) {
+    clearError();
+  }
+};
+
+const showError = (message) => {
+  errorEl.textContent = message;
+  errorEl.classList.remove("hidden");
+  loadingEl.classList.add("hidden");
+};
+
+const toggleView = (showLibrary) => {
+  clearError();
+  searchSection.classList.toggle("hidden", showLibrary);
+  librarySection.classList.toggle("hidden", !showLibrary);
+  searchViewBtn.classList.toggle("active", !showLibrary);
+  libraryViewBtn.classList.toggle("active", showLibrary);
+};
+
+searchBtn.addEventListener("click", searchBooks);
+searchInput.addEventListener("keypress", (e) => {
+  if (e.key === "Enter") {
+    searchBooks();
+  }
+});
+searchViewBtn.addEventListener("click", () => toggleView(false));
+libraryViewBtn.addEventListener("click", () => toggleView(true));
 
 initDB();

@@ -170,11 +170,11 @@
 }
 
 .book-actions button.read {
-  background-color: #86efac;
+  background-color: #3acf71;
 }
 
 .book-actions button.unread {
-  background-color: #fca5a5;
+  background-color: #f45c5c;
 }
 
 .mark-button {
